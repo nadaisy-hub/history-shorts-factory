@@ -29,8 +29,8 @@ import {
   Volume2,
   Music,
 } from "lucide-react";
-import type { Project, Scene, AudioSettings } from "@/lib/types";
-import { STATUS_LABELS, GATE_TRANSITIONS } from "@/lib/types";
+import type { Project, Scene, AudioSettings, SubtitleSettings } from "@/lib/types";
+import { STATUS_LABELS, GATE_TRANSITIONS, SUBTITLE_STYLE_LABELS, type SubtitleStyle } from "@/lib/types";
 
 export default function ProjectPage() {
   const params = useParams();
@@ -161,6 +161,18 @@ export default function ProjectPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audio_settings: updatedSettings }),
+    });
+  }
+
+  async function handleUpdateSubtitle(updates: Partial<SubtitleSettings>) {
+    if (!project) return;
+    const updatedSettings = { ...project.subtitle_settings, ...updates };
+    setProject({ ...project, subtitle_settings: updatedSettings });
+
+    await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subtitle_settings: updatedSettings }),
     });
   }
 
@@ -624,6 +636,128 @@ export default function ProjectPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* 자막 설정 — voice_review에서 조립 전에 설정 */}
+      {project.status === "voice_review" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              자막 설정
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">자막 표시</p>
+                <p className="text-xs text-muted-foreground">
+                  영상에 나레이션 텍스트를 자막으로 표시합니다
+                </p>
+              </div>
+              <Switch
+                checked={project.subtitle_settings.enabled}
+                onCheckedChange={(checked) => handleUpdateSubtitle({ enabled: checked })}
+              />
+            </div>
+
+            {project.subtitle_settings.enabled && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs">자막 스타일</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.entries(SUBTITLE_STYLE_LABELS) as [SubtitleStyle, string][]).map(
+                      ([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => handleUpdateSubtitle({ style: value })}
+                          className={`p-3 rounded-lg border-2 text-left text-sm transition-all ${
+                            project.subtitle_settings.style === value
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-primary/30"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs">글자 크기: {project.subtitle_settings.font_size}px</Label>
+                    <Slider
+                      value={[project.subtitle_settings.font_size]}
+                      onValueChange={(val) => handleUpdateSubtitle({ font_size: Number(val) })}
+                      min={24} max={64} step={2}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">
+                      세로 위치: {Math.round(project.subtitle_settings.position_y * 100)}%
+                    </Label>
+                    <Slider
+                      value={[project.subtitle_settings.position_y * 100]}
+                      onValueChange={(val) => handleUpdateSubtitle({ position_y: Number(val) / 100 })}
+                      min={50} max={95} step={5}
+                    />
+                  </div>
+                </div>
+
+                {project.subtitle_settings.style === "stroke" && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">
+                      외곽선 두께: {project.subtitle_settings.stroke_width}px
+                    </Label>
+                    <Slider
+                      value={[project.subtitle_settings.stroke_width]}
+                      onValueChange={(val) => handleUpdateSubtitle({ stroke_width: Number(val) })}
+                      min={1} max={6} step={0.5}
+                    />
+                  </div>
+                )}
+
+                {project.subtitle_settings.style === "semi_bg" && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">
+                      배경 투명도: {Math.round(project.subtitle_settings.bg_opacity * 100)}%
+                    </Label>
+                    <Slider
+                      value={[project.subtitle_settings.bg_opacity * 100]}
+                      onValueChange={(val) => handleUpdateSubtitle({ bg_opacity: Number(val) / 100 })}
+                      min={10} max={80} step={5}
+                    />
+                  </div>
+                )}
+
+                {/* 자막 미리보기 */}
+                <div className="relative bg-muted rounded-lg overflow-hidden" style={{ aspectRatio: '9/16', maxWidth: 200 }}>
+                  <div className="absolute inset-0 flex items-end justify-center"
+                    style={{ paddingBottom: `${Math.round((1 - project.subtitle_settings.position_y) * 100)}%` }}>
+                    <span className="text-center px-2 py-1 max-w-[90%] text-xs font-bold"
+                      style={{
+                        color: project.subtitle_settings.font_color,
+                        ...(project.subtitle_settings.style === 'stroke' ? {
+                          WebkitTextStroke: `${project.subtitle_settings.stroke_width * 0.3}px ${project.subtitle_settings.stroke_color}`,
+                          paintOrder: 'stroke fill',
+                        } : {}),
+                        ...(project.subtitle_settings.style === 'shadow' ? {
+                          textShadow: '1px 1px 3px rgba(0,0,0,0.8)',
+                        } : {}),
+                        ...(project.subtitle_settings.style === 'semi_bg' ? {
+                          background: `rgba(0,0,0,${project.subtitle_settings.bg_opacity})`,
+                          borderRadius: 4,
+                        } : {}),
+                      }}>
+                      자막 미리보기 텍스트
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Final review */}

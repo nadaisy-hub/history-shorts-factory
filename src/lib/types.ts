@@ -34,6 +34,37 @@ export interface Scene {
   status: SceneStatus;
 }
 
+export type SubtitleStyle = 'stroke' | 'shadow' | 'semi_bg' | 'none';
+
+export interface SubtitleSettings {
+  enabled: boolean;
+  style: SubtitleStyle;
+  font_size: number;          // px (기본 42)
+  font_color: string;         // hex (기본 #FFFFFF)
+  stroke_color: string;       // hex (기본 #000000)
+  stroke_width: number;       // px (기본 3)
+  bg_opacity: number;         // 0.0 ~ 1.0 (semi_bg 모드에서 사용, 기본 0.5)
+  position_y: number;         // 0.0~1.0 비율 (0=상단, 1=하단, 기본 0.85)
+}
+
+export const DEFAULT_SUBTITLE_SETTINGS: SubtitleSettings = {
+  enabled: true,
+  style: 'stroke',
+  font_size: 42,
+  font_color: '#FFFFFF',
+  stroke_color: '#000000',
+  stroke_width: 3,
+  bg_opacity: 0.5,
+  position_y: 0.85,
+};
+
+export const SUBTITLE_STYLE_LABELS: Record<SubtitleStyle, string> = {
+  stroke: '외곽선 (추천)',
+  shadow: '그림자',
+  semi_bg: '반투명 배경',
+  none: '자막 없음',
+};
+
 export interface AudioSettings {
   bgm_url: string | null;
   bgm_volume: number;         // 0.0 ~ 1.0 스케일
@@ -71,6 +102,7 @@ export interface Project {
   updated_at: string;
   scenes: Scene[];
   audio_settings: AudioSettings;
+  subtitle_settings: SubtitleSettings;
 }
 
 export interface JobLog {

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuid } from 'uuid';
 import type { Project, JobLog } from './types';
-import { DEFAULT_AUDIO_SETTINGS } from './types';
+import { DEFAULT_AUDIO_SETTINGS, DEFAULT_SUBTITLE_SETTINGS } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'projects');
 
@@ -65,6 +65,7 @@ export async function createProject(data: {
     updated_at: new Date().toISOString(),
     scenes: [],
     audio_settings: { ...DEFAULT_AUDIO_SETTINGS },
+    subtitle_settings: { ...DEFAULT_SUBTITLE_SETTINGS },
   };
   await saveProject(project);
   return project;

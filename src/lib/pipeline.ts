@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { Project, Scene } from './types';
+import type { Project, Scene, SubtitleSettings } from './types';
 import { AUTO_TRANSITIONS, GATE_TRANSITIONS } from './types';
 import { getProject, saveProject, appendJobLog } from './storage';
 
@@ -335,6 +335,114 @@ export async function generateVoice(projectId: string): Promise<Project> {
 }
 
 /**
+ * 장면별 자막 클립 생성 (Shotstack HTML asset)
+ * 검은 배경 박스 대신 외곽선/그림자/반투명 배경 사용
+ */
+function buildSubtitleClips(scenes: Scene[], settings: SubtitleSettings) {
+  if (!settings.enabled) return [];
+
+  // 자막 스타일 CSS 생성
+  let textStyle = `
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: ${settings.font_size}px;
+    font-weight: 700;
+    color: ${settings.font_color};
+    text-align: center;
+    line-height: 1.4;
+    padding: 8px 16px;
+    max-width: 90%;
+    word-break: keep-all;
+  `;
+
+  switch (settings.style) {
+    case 'stroke':
+      // 외곽선만 — 배경 없음
+      textStyle += `
+        -webkit-text-stroke: ${settings.stroke_width}px ${settings.stroke_color};
+        paint-order: stroke fill;
+        text-shadow: none;
+        background: transparent;
+      `;
+      break;
+    case 'shadow':
+      // 그림자만 — 배경 없음
+      textStyle += `
+        text-shadow:
+          2px 2px 4px rgba(0,0,0,0.8),
+          -1px -1px 3px rgba(0,0,0,0.6),
+          0 0 8px rgba(0,0,0,0.5);
+        background: transparent;
+      `;
+      break;
+    case 'semi_bg':
+      // 반투명 둥근 배경
+      textStyle += `
+        background: rgba(0, 0, 0, ${settings.bg_opacity});
+        border-radius: 8px;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+      `;
+      break;
+    case 'none':
+      return [];
+  }
+
+  return scenes.map((scene, i) => {
+    const start = scenes.slice(0, i).reduce((sum, s) => sum + s.duration_sec, 0);
+    const html = `
+      <div style="
+        width: 1080px;
+        height: 1920px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: ${Math.round((1 - settings.position_y) * 1920)}px;
+      ">
+        <span style="${textStyle}">${escapeHtml(scene.narration)}</span>
+      </div>
+    `;
+
+    return {
+      asset: { type: 'html', html, width: 1080, height: 1920 },
+      start,
+      length: scene.duration_sec,
+      fit: 'none',
+    };
+  });
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/\n/g, '<br>');
+}
+
+/**
+ * SRT 자막 파일 생성 (로컬 저장용)
+ */
+export function generateSRT(scenes: Scene[]): string {
+  let srt = '';
+  scenes.forEach((scene, i) => {
+    const start = scenes.slice(0, i).reduce((sum, s) => sum + s.duration_sec, 0);
+    const end = start + scene.duration_sec;
+    srt += `${i + 1}\n`;
+    srt += `${formatSrtTime(start)} --> ${formatSrtTime(end)}\n`;
+    srt += `${scene.narration}\n\n`;
+  });
+  return srt;
+}
+
+function formatSrtTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+/**
  * BGM 볼륨 자동 계산 (LUFS 기반 로직)
  * 나레이션 대비 target_diff_db만큼 낮은 볼륨으로 BGM 스케일 결정
  * - 기본값: 나레이션 대비 -20dB → 약 0.1 스케일
@@ -363,13 +471,27 @@ export async function assembleVideo(projectId: string): Promise<Project> {
 
   const startTime = Date.now();
   const audio = project.audio_settings;
+  const subtitle = project.subtitle_settings;
   const bgmVolume = calculateBgmVolume(audio);
+
+  // SRT 파일 로컬 저장
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const srtContent = generateSRT(project.scenes);
+  const srtDir = path.join(process.cwd(), 'data', 'subtitles');
+  await fs.mkdir(srtDir, { recursive: true });
+  await fs.writeFile(path.join(srtDir, `${projectId}.srt`), srtContent, 'utf-8');
 
   try {
     const totalDuration = project.scenes.reduce((sum, s) => sum + s.duration_sec, 0);
 
-    const tracks = [
-      // 트랙 1: 비디오 클립
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tracks: any[] = [
+      // 트랙 1: 자막 오버레이 (최상위 — 영상 위에 렌더링)
+      ...(subtitle.enabled && subtitle.style !== 'none'
+        ? [{ clips: buildSubtitleClips(project.scenes, subtitle) }]
+        : []),
+      // 트랙 2: 비디오 클립
       {
         clips: project.scenes.map((scene, i) => ({
           asset: { type: 'video', src: scene.video_url },
@@ -379,7 +501,7 @@ export async function assembleVideo(projectId: string): Promise<Project> {
           transition: { in: 'fade', out: 'fade' },
         })),
       },
-      // 트랙 2: 나레이션 (볼륨 조절 가능)
+      // 트랙 3: 나레이션
       {
         clips: [
           {
@@ -395,7 +517,7 @@ export async function assembleVideo(projectId: string): Promise<Project> {
       },
     ];
 
-    // 트랙 3: BGM (있으면 추가, 자동 볼륨 밸런싱 적용)
+    // 트랙 4: BGM (있으면 추가, 자동 볼륨 밸런싱 적용)
     if (audio.bgm_url) {
       tracks.push({
         clips: [
