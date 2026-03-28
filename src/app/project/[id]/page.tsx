@@ -10,6 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Stepper } from "@/components/stepper";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   ArrowRight,
@@ -23,8 +26,10 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Volume2,
+  Music,
 } from "lucide-react";
-import type { Project, Scene } from "@/lib/types";
+import type { Project, Scene, AudioSettings } from "@/lib/types";
 import { STATUS_LABELS, GATE_TRANSITIONS } from "@/lib/types";
 
 export default function ProjectPage() {
@@ -144,6 +149,18 @@ export default function ProjectPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scenes: updatedScenes }),
+    });
+  }
+
+  async function handleUpdateAudio(updates: Partial<AudioSettings>) {
+    if (!project) return;
+    const updatedSettings = { ...project.audio_settings, ...updates };
+    setProject({ ...project, audio_settings: updatedSettings });
+
+    await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio_settings: updatedSettings }),
     });
   }
 
@@ -444,16 +461,169 @@ export default function ProjectPage() {
         </div>
       )}
 
-      {/* Voice review */}
-      {project.status === "voice_review" && project.output_url && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">나레이션 오디오</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <audio controls src={project.output_url} className="w-full" />
-          </CardContent>
-        </Card>
+      {/* Voice review - 오디오 밸런스 컨트롤 */}
+      {project.status === "voice_review" && (
+        <div className="space-y-4">
+          {/* 나레이션 플레이어 */}
+          {project.narration_url && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Volume2 className="h-4 w-4" />
+                  나레이션 오디오
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <audio controls src={project.narration_url} className="w-full" />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs">나레이션 볼륨</Label>
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        value={[project.audio_settings.narration_volume * 100]}
+                        onValueChange={(val) => handleUpdateAudio({ narration_volume: Number(val) / 100 })}
+                        min={0} max={100} step={5}
+                        className="flex-1"
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(project.audio_settings.narration_volume * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">TTS 속도</Label>
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        value={[project.audio_settings.tts_speed * 100]}
+                        onValueChange={(val) => handleUpdateAudio({ tts_speed: Number(val) / 100 })}
+                        min={80} max={130} step={5}
+                        className="flex-1"
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {project.audio_settings.tts_speed.toFixed(1)}x
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs">음성 안정성</Label>
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        value={[project.audio_settings.tts_stability * 100]}
+                        onValueChange={(val) => handleUpdateAudio({ tts_stability: Number(val) / 100 })}
+                        min={0} max={100} step={5}
+                        className="flex-1"
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(project.audio_settings.tts_stability * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">음성 유사도</Label>
+                    <div className="flex items-center gap-3">
+                      <Slider
+                        value={[project.audio_settings.tts_similarity * 100]}
+                        onValueChange={(val) => handleUpdateAudio({ tts_similarity: Number(val) / 100 })}
+                        min={0} max={100} step={5}
+                        className="flex-1"
+                      />
+                      <span className="text-xs text-muted-foreground w-10 text-right">
+                        {Math.round(project.audio_settings.tts_similarity * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleGenerate("voice")}
+                  disabled={!!actionLoading}
+                  className="gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  설정 변경 후 재생성
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* BGM 설정 + 자동 밸런싱 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Music className="h-4 w-4" />
+                BGM 설정
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs">BGM URL (mp3/wav)</Label>
+                <Input
+                  type="text"
+                  placeholder="https://... 또는 로컬 파일 경로"
+                  value={project.audio_settings.bgm_url || ""}
+                  onChange={(e) => handleUpdateAudio({ bgm_url: e.target.value || null })}
+                  className="text-xs font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                <div>
+                  <p className="text-sm font-medium">LUFS 자동 밸런싱</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    나레이션 대비 BGM 볼륨을 자동 계산합니다
+                  </p>
+                </div>
+                <Switch
+                  checked={project.audio_settings.auto_balance}
+                  onCheckedChange={(checked) => handleUpdateAudio({ auto_balance: checked })}
+                />
+              </div>
+
+              {project.audio_settings.auto_balance ? (
+                <div className="space-y-2">
+                  <Label className="text-xs">
+                    나레이션 대비 BGM 감소량: -{project.audio_settings.target_diff_db}dB
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      value={[project.audio_settings.target_diff_db]}
+                      onValueChange={(val) => handleUpdateAudio({ target_diff_db: Number(val) })}
+                      min={10} max={30} step={1}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-16 text-right">
+                      vol: {Math.pow(10, -project.audio_settings.target_diff_db / 20).toFixed(3)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    추천: 18~22dB (나레이션이 명확히 들리는 수준)
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-xs">BGM 수동 볼륨</Label>
+                  <div className="flex items-center gap-3">
+                    <Slider
+                      value={[project.audio_settings.bgm_volume * 100]}
+                      onValueChange={(val) => handleUpdateAudio({ bgm_volume: Number(val) / 100 })}
+                      min={0} max={50} step={1}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-10 text-right">
+                      {Math.round(project.audio_settings.bgm_volume * 100)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Final review */}

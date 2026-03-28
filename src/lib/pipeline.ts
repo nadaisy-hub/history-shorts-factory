@@ -269,6 +269,7 @@ export async function generateVoice(projectId: string): Promise<Project> {
 
   const startTime = Date.now();
   const fullNarration = project.scenes.map((s) => s.narration).join('\n\n');
+  const audio = project.audio_settings;
 
   try {
     const response = await fetch(
@@ -283,9 +284,9 @@ export async function generateVoice(projectId: string): Promise<Project> {
           text: fullNarration,
           model_id: 'eleven_multilingual_v2',
           voice_settings: {
-            stability: 0.75,
-            similarity_boost: 0.75,
-            speed: 1.1,
+            stability: audio.tts_stability,
+            similarity_boost: audio.tts_similarity,
+            speed: audio.tts_speed,
           },
         }),
       }
@@ -302,7 +303,7 @@ export async function generateVoice(projectId: string): Promise<Project> {
     const buffer = Buffer.from(await response.arrayBuffer());
     await fs.writeFile(audioPath, buffer);
 
-    project.output_url = `/api/files/audio/${projectId}.mp3`;
+    project.narration_url = `/api/files/audio/${projectId}.mp3`;
     project.status = AUTO_TRANSITIONS['voicing']!;
     await saveProject(project);
 
@@ -333,6 +334,23 @@ export async function generateVoice(projectId: string): Promise<Project> {
   }
 }
 
+/**
+ * BGM 볼륨 자동 계산 (LUFS 기반 로직)
+ * 나레이션 대비 target_diff_db만큼 낮은 볼륨으로 BGM 스케일 결정
+ * - 기본값: 나레이션 대비 -20dB → 약 0.1 스케일
+ * - auto_balance가 false면 audio_settings.bgm_volume 그대로 사용
+ */
+function calculateBgmVolume(audioSettings: Project['audio_settings']): number {
+  if (!audioSettings.auto_balance) {
+    return audioSettings.bgm_volume;
+  }
+  // LUFS 기반 계산: target_diff_db를 선형 볼륨 스케일로 변환
+  // volume_scale = 10^(-target_diff_db / 20)
+  const targetDiffDb = audioSettings.target_diff_db;
+  const autoVolume = Math.pow(10, -targetDiffDb / 20);
+  return Math.max(0.01, Math.min(1.0, autoVolume));
+}
+
 export async function assembleVideo(projectId: string): Promise<Project> {
   const project = await getProject(projectId);
   if (!project) throw new Error('프로젝트를 찾을 수 없습니다');
@@ -344,31 +362,55 @@ export async function assembleVideo(projectId: string): Promise<Project> {
   if (!apiKey) throw new Error('SHOTSTACK_API_KEY가 설정되지 않았습니다');
 
   const startTime = Date.now();
+  const audio = project.audio_settings;
+  const bgmVolume = calculateBgmVolume(audio);
 
   try {
     const totalDuration = project.scenes.reduce((sum, s) => sum + s.duration_sec, 0);
-    const timeline = {
-      tracks: [
-        {
-          clips: project.scenes.map((scene, i) => ({
-            asset: { type: 'video', src: scene.video_url },
-            start: project.scenes.slice(0, i).reduce((sum, s) => sum + s.duration_sec, 0),
-            length: scene.duration_sec,
-            fit: 'cover',
-            transition: { in: 'fade', out: 'fade' },
-          })),
-        },
-        {
-          clips: [
-            {
-              asset: { type: 'audio', src: project.output_url, volume: 1.0 },
-              start: 0,
-              length: totalDuration,
+
+    const tracks = [
+      // 트랙 1: 비디오 클립
+      {
+        clips: project.scenes.map((scene, i) => ({
+          asset: { type: 'video', src: scene.video_url },
+          start: project.scenes.slice(0, i).reduce((sum, s) => sum + s.duration_sec, 0),
+          length: scene.duration_sec,
+          fit: 'cover',
+          transition: { in: 'fade', out: 'fade' },
+        })),
+      },
+      // 트랙 2: 나레이션 (볼륨 조절 가능)
+      {
+        clips: [
+          {
+            asset: {
+              type: 'audio',
+              src: project.narration_url,
+              volume: audio.narration_volume,
             },
-          ],
-        },
-      ],
-    };
+            start: 0,
+            length: totalDuration,
+          },
+        ],
+      },
+    ];
+
+    // 트랙 3: BGM (있으면 추가, 자동 볼륨 밸런싱 적용)
+    if (audio.bgm_url) {
+      tracks.push({
+        clips: [
+          {
+            asset: {
+              type: 'audio',
+              src: audio.bgm_url,
+              volume: bgmVolume,
+            },
+            start: 0,
+            length: totalDuration,
+          },
+        ],
+      });
+    }
 
     const response = await fetch('https://api.shotstack.io/edit/v1/render', {
       method: 'POST',
@@ -377,7 +419,7 @@ export async function assembleVideo(projectId: string): Promise<Project> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        timeline,
+        timeline: { tracks },
         output: { format: 'mp4', resolution: 'hd', aspectRatio: '9:16', fps: 30 },
       }),
     });

@@ -1,7 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuid } from 'uuid';
-import type { Project, Scene, JobLog } from './types';
+import type { Project, JobLog } from './types';
+import { DEFAULT_AUDIO_SETTINGS } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'projects');
 
@@ -58,10 +59,12 @@ export async function createProject(data: {
     voice_id: data.voice_id,
     duration_sec: data.duration_sec,
     output_url: null,
+    narration_url: null,
     youtube_id: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     scenes: [],
+    audio_settings: { ...DEFAULT_AUDIO_SETTINGS },
   };
   await saveProject(project);
   return project;

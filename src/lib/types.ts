@@ -34,6 +34,28 @@ export interface Scene {
   status: SceneStatus;
 }
 
+export interface AudioSettings {
+  bgm_url: string | null;
+  bgm_volume: number;         // 0.0 ~ 1.0 스케일
+  narration_volume: number;    // 0.0 ~ 1.0 스케일
+  tts_speed: number;           // 0.8 ~ 1.3
+  tts_stability: number;       // 0.0 ~ 1.0
+  tts_similarity: number;      // 0.0 ~ 1.0
+  target_diff_db: number;      // 나레이션 대비 BGM 감소 dB (기본 20)
+  auto_balance: boolean;       // LUFS 기반 자동 밸런싱 사용 여부
+}
+
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+  bgm_url: null,
+  bgm_volume: 0.15,
+  narration_volume: 1.0,
+  tts_speed: 1.1,
+  tts_stability: 0.75,
+  tts_similarity: 0.75,
+  target_diff_db: 20,
+  auto_balance: true,
+};
+
 export interface Project {
   id: string;
   title: string;
@@ -43,10 +65,12 @@ export interface Project {
   voice_id: string;
   duration_sec: number;
   output_url: string | null;
+  narration_url: string | null;
   youtube_id: string | null;
   created_at: string;
   updated_at: string;
   scenes: Scene[];
+  audio_settings: AudioSettings;
 }
 
 export interface JobLog {
